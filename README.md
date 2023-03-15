@@ -15,6 +15,7 @@ at: CentraleSupélec & ESSEC Business School
 - take aspect category (e.g. FOOD#QUALITY) and transform it into natural language (quality of food)
 - input in model could be (term, sentence, aspect category in natural language, sentiment)
 - amazing paper that does huge review of current methods (especially section 3.4 provides many references to different models we could try): https://arxiv.org/abs/2203.01054 --> all interesting papers should be uploaded to resources folder!!
+- another great review paper: https://arxiv.org/abs/2203.14266
 - LOOK AT THE LABS!!
 - very similar task on Turkish restaurant data: https://github.com/EzgiArslan/aspect-based-sentiment-analysis
 - exactly the same dataset (but 2018): https://remicnrd.github.io/Aspect-based-sentiment-analysis/
