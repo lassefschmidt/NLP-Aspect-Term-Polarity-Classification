@@ -10,10 +10,14 @@ within: MS Data Sciences & Business Analytics
 at: CentraleSupélec & ESSEC Business School
 ***
 
-### 0. Tips from Lecture
+### 0. Tips
 
 - take aspect category (e.g. FOOD#QUALITY) and transform it into natural language (quality of food)
 - input in model could be (term, sentence, aspect category in natural language, sentiment)
+- amazing paper that does huge review of current methods: https://arxiv.org/abs/2203.01054
+- very similar task on Turkish restaurant data: https://github.com/EzgiArslan/aspect-based-sentiment-analysis
+- exactly the same dataset (but 2018): https://remicnrd.github.io/Aspect-based-sentiment-analysis/
+- exactly same dataset (2018 as well): https://github.com/fern35/NLP_aspect-based-sentiment-analysis
 
 ### 1. Evaluation
 
