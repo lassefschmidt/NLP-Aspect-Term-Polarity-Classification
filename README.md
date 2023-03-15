@@ -10,6 +10,11 @@ within: MS Data Sciences & Business Analytics
 at: CentraleSupélec & ESSEC Business School
 ***
 
+### 0. Tips from Lecture
+
+- take aspect category (e.g. FOOD#QUALITY) and transform it into natural language (quality of food)
+- input in model could be (term, sentence, aspect category in natural language, sentiment)
+
 ### 1. Evaluation
 
 Grading scheme:
