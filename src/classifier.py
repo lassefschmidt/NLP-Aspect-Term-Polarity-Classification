@@ -3,6 +3,8 @@ from typing import List
 import torch
 
 
+
+
 class Classifier:
     """
     The Classifier: complete the definition of this class template by providing a constructor (i.e. the
@@ -21,6 +23,7 @@ class Classifier:
           - DO NOT USE THE DEV DATA AS TRAINING EXAMPLES, YOU CAN USE THEM ONLY FOR THE OPTIMIZATION
          OF MODEL HYPERPARAMETERS
         """
+
 
 
     def predict(self, data_filename: str, device: torch.device) -> List[str]:
