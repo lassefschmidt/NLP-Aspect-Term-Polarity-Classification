@@ -13,7 +13,7 @@ import pandas as pd
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from transformers import AutoConfig, AutoTokenizer, AutoModel, DataCollatorWithPadding, get_scheduler
+from transformers import AutoConfig, AutoTokenizer, AutoModel, AutoModelForSequenceClassification, DataCollatorWithPadding, get_scheduler
 
 # evaluation
 from sklearn.metrics import accuracy_score
@@ -57,45 +57,60 @@ class TransformerSentimentClassifier(torch.nn.Module):
         super(TransformerSentimentClassifier, self).__init__()
 
         # initialise language model
-        self.lm_config    = AutoConfig.from_pretrained(config["plm_name"])
-        self.lm_tokenizer = AutoTokenizer.from_pretrained(config["plm_name"])
-        self.lm           = AutoModel.from_pretrained(config["plm_name"], output_attentions=False)
+        self.plm_name     = config["plm_name"]
+        self.lm_config    = AutoConfig.from_pretrained(self.plm_name)
+        self.lm_tokenizer = AutoTokenizer.from_pretrained(self.plm_name)
 
-        # get input and output dimensions of classifier
-        self.emb_dim     = self.lm_config.hidden_size
-        self.output_size = 3
+        if self.plm_name == "cardiffnlp/twitter-roberta-base-sentiment-latest":
+            self.lm = AutoModelForSequenceClassification.from_pretrained(self.plm_name)
+        else:
+            self.lm = AutoModel.from_pretrained(self.plm_name)
 
-        # initialise classifier
-        self.classifier = nn.Sequential()
-        self.classifier.append(nn.Dropout(config["cls_dropout_st"]))
+        # initialise classifier (only makes sense for AutoModel, NOT for AutoModelForSequenceClassification)
+        if config["cls_channels"] is not None:
+            # get input and output dimensions of classifier
+            self.emb_dim     = self.lm_config.hidden_size
+            self.output_size = 3
 
-        ## get activation function
-        if config["cls_activation"] == "ReLU":
-            activation = nn.ReLU()
-        elif config["cls_activation"] == "Sigmoid":
-            activation = nn.Sigmoid()
-        elif config["cls_activation"] == "Tanh":
-            activation = nn.Tanh()
+            # initialise classifier
+            self.classifier = nn.Sequential()
+            self.classifier.append(nn.Dropout(config["cls_dropout_st"]))
+
+            ## get activation function
+            if config["cls_activation"] == "ReLU":
+                activation = nn.ReLU()
+            elif config["cls_activation"] == "Sigmoid":
+                activation = nn.Sigmoid()
+            elif config["cls_activation"] == "Tanh":
+                activation = nn.Tanh()
+            
+            ## get hidden dropout layers
+            dropout = nn.Dropout(config["cls_dropout_hidden"])
+
+            ## initialise classifier head
+            input_size = self.emb_dim
+            for idx, channel in enumerate(config["cls_channels"]):
+                self.classifier.append(nn.Linear(input_size, channel))
+                input_size = channel # update input size for next layer
+                if idx < len(config["cls_channels"]) - 1: # append activation + dropout only in hidden layers
+                    self.classifier.append(activation)
+                    self.classifier.append(dropout)
+
+    def forward(self, ids, mask, token_type_ids):
+        if self.plm_name == "bert-base-cased":
+            _, output_1 = self.lm(input_ids = ids, attention_mask = mask, token_type_ids = token_type_ids)
+            output_2 = self.classifier(output_1)
+
+        if self.plm_name == "roberta-base":
+            output_1 = self.lm(input_ids = ids, attention_mask = mask, token_type_ids = token_type_ids)
+            hidden_state = output_1[0]
+            pooler = hidden_state[:, 0]
+            output_2 = self.classifier(pooler)
+
+        if self.plm_name == "cardiffnlp/twitter-roberta-base-sentiment-latest":
+            output_2 = self.lm(input_ids = ids, attention_mask = mask).logits
         
-        ## get hidden dropout layers
-        dropout = nn.Dropout(config["cls_dropout_hidden"])
-
-        ## initialise classifier head
-        input_size = self.emb_dim
-        for idx, channel in enumerate(config["cls_channels"]):
-            self.classifier.append(nn.Linear(input_size, channel))
-            input_size = channel # update input size for next layer
-            if idx < len(config["cls_channels"]) - 1: # append activation + dropout only in hidden layers
-                self.classifier.append(activation)
-                self.classifier.append(dropout)
-
-    def forward(self, x):
-        input_ids = x[0].squeeze(0)
-        attention_mask = x[1].squeeze(0)
-        x : torch.Tensor = self.lm(input_ids, attention_mask).last_hidden_state
-        global_vects     = x.mean(dim=1) # THIS SHOULD BE OPTIMIZED (how to handle output vectors from language model)
-        x                = self.classifier(global_vects)
-        return x.squeeze(-1)
+        return output_2
 
 
 def get_datasets(config):
@@ -109,8 +124,8 @@ def get_datasets(config):
     dev   = pd.read_csv(devfile  , sep = "\t", header = None).rename(columns = {0: "y", 1: "aspect", 2: "target_term", 3: "target_location", 4: "sentence"})
     
     # preprocess data to get model inputs and labels
-    train_prep = prepData.preprocess(train, enrich_inputs = config["input_enrichment"])
-    dev_prep   = prepData.preprocess(dev,   enrich_inputs = config["input_enrichment"])
+    train_prep = prepData.preprocess(train, config)
+    dev_prep   = prepData.preprocess(dev,   config)
 
     # transform into huggingface dataset
     hf_train = Dataset.from_pandas(train_prep)
@@ -198,14 +213,17 @@ def train_epoch(dataloader, model, optimizer, lr_scheduler, criterion, device):
         # move batch to device
         batch = {k: v.to(device) for k, v in batch.items()}
 
-        # get inputs
-        inputs = torch.cat((batch["input_ids"].unsqueeze(0), batch["attention_mask"].unsqueeze(0)), dim = 0)
+        # cardiffnlp model does not have token type ids
+        try:
+            token_type_ids = batch["token_type_ids"]
+        except KeyError:
+            token_type_ids = None
     
         # zero optimizer gradients
         optimizer.zero_grad()
         
         # forward + backward + optimize
-        outputs = model(inputs)
+        outputs = model(batch["input_ids"], batch["attention_mask"], token_type_ids)
         loss = criterion(outputs, batch['labels'].float())
         loss.backward()
         optimizer.step()
@@ -236,12 +254,15 @@ def val_epoch(dataloader, model, criterion, device):
 
             # move batch to device
             batch = {k: v.to(device) for k, v in batch.items()}
-
-            # get inputs
-            inputs = torch.cat((batch["input_ids"].unsqueeze(0), batch["attention_mask"].unsqueeze(0)), dim = 0)
             
+            # cardiffnlp model does not have token type ids
+            try:
+                token_type_ids = batch["token_type_ids"]
+            except KeyError:
+                token_type_ids = None
+
             # forward
-            outputs = model(inputs)
+            outputs = model(batch["input_ids"], batch["attention_mask"], token_type_ids)
             loss = criterion(outputs, batch['labels'].float())
             
             # logging
@@ -321,11 +342,14 @@ def evaluate(dataloader, model, device):
             # move batch to device
             batch = {k: v.to(device) for k, v in batch.items()}
 
-            # get inputs
-            inputs = torch.cat((batch["input_ids"].unsqueeze(0), batch["attention_mask"].unsqueeze(0)), dim = 0)
+            # cardiffnlp model does not have token type ids
+            try:
+                token_type_ids = batch["token_type_ids"]
+            except KeyError:
+                token_type_ids = None
 
             # forward
-            outputs = model(inputs)
+            outputs = model(batch["input_ids"], batch["attention_mask"], token_type_ids)
             
             # logging
             preds = torch.cat((preds, outputs.argmax(dim = 1).cpu()))

@@ -1,0 +1,31 @@
+# tunable hyperparameter search space --> search using tune.choice([]), tune.uniform(lower, upper), tune.grid_search([])
+config = {
+    # basic infos
+    "data_path": os.path.abspath(""),
+    "max_epochs": 10,
+    "batch_size": tune.grid_search([16, 32]),
+    
+    # data preprocessing
+    "input_enrichment": "aspect_target_sentence", # "aspect_sentence" doesn't work as well
+    
+    # pre-trained language model (transformer)
+    "plm_name": "bert-base-cased",
+    "plm_freeze": False, # freezing weights doesn't make sense (at least with BERT)
+
+    # classifier (linear layers)
+    "cls_dropout_st":     tune.grid_search([0, 0.2]),
+    "cls_channels":       tune.grid_search([[3], [768, 3], [768, 768, 3]]),
+    "cls_activation":     "ReLU", # tune.grid_search(["ReLU", "Sigmoid", "Tanh"])
+    "cls_dropout_hidden": tune.grid_search([0, 0.1, 0.2]),
+    
+    # optimizer
+    "lr": 5e-5, # tune.grid_search([1e-5, 1e-6]) // 1e-4 too high!
+    "wd": 1e-2, # tune.grid_search([1e-2, 1e-3, 1e-4])
+
+    # scheduler
+    "lr_s": "linear", # tune.grid_search(["constant", "linear", "cosine"])
+    "warmup": 0, # number of epochs to warm up learning rate
+    
+    # loss function
+    "criterion": "BCE"
+}

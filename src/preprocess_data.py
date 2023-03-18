@@ -1,33 +1,22 @@
 import pandas as pd
 
-def preprocess(df, enrich_inputs = "aspect_target_sentence"):
+def preprocess(df, config):
+
+    # get relevant settings
+    enrich_inputs = config["input_enrichment"]
+
+    # get model name
+    plm_name = config["plm_name"]
+
+    if plm_name == "bert-base-cased":
+        SEP = " [SEP] "
+    else:
+        SEP = " "
 
     # encode labels
-    class_dict = {"negative": 0, "neutral": 1, "positive": 2}
     df = df.assign(labels = pd.get_dummies(df.y).values.tolist()) # labels are of form negative, neutral, positive
 
     # generate and enrich inputs
-    if enrich_inputs == "aspect_sentence":
-        aspect_in_nl = {
-            "AMBIENCE#GENERAL": "How is the general ambience?",
-            "DRINKS#PRICES": "How are the prices of the drinks?",
-            "DRINKS#QUALITY": "How is the quality of the drinks?",
-            "DRINKS#STYLE_OPTIONS": "How are the style options of the drinks?",
-            "FOOD#PRICES": "How are the prices of the food?",
-            "FOOD#QUALITY": "How is the quality of the food?",
-            "FOOD#STYLE_OPTIONS": "How are the style options of the food?",
-            "LOCATION#GENERAL": "How is the location of the restaurant?",
-            "RESTAURANT#GENERAL": "How is the restaurant overall?",
-            "RESTAURANT#MISCELLANEOUS": "Any other aspects that might be relevant?",
-            "RESTAURANT#PRICES": "How are the prices of the restaurant?",
-            "SERVICE#GENERAL": "How is the service called $T$?",
-        }
-
-        df = (df
-            .assign(aspect_nl = lambda df_: [aspect_in_nl[cat] for cat in df_.aspect])
-            .assign(inputs = lambda df_: df_[["aspect_nl", "sentence"]].apply(lambda x: " [SEP] ".join(x), axis = 1))
-        )
-
     if enrich_inputs == "aspect_target_sentence":
         aspect_in_nl = {
             "AMBIENCE#GENERAL": "How is the general ambience of the $T$?",
@@ -47,7 +36,7 @@ def preprocess(df, enrich_inputs = "aspect_target_sentence"):
         df = (df
             .assign(aspect_nl = lambda df_: [aspect_in_nl[cat] for cat in df_.aspect])
             .assign(aspect_nl = lambda df_: [cat_nl.replace("$T$", t) for cat_nl, t in zip(df_.aspect_nl, df_.target_term)])
-            .assign(inputs = lambda df_: df_[["aspect_nl", "sentence"]].apply(lambda x: " [SEP] ".join(x), axis = 1))
+            .assign(inputs = lambda df_: df_[["aspect_nl", "sentence"]].apply(lambda x: SEP.join(x), axis = 1))
         )
 
     return df[["inputs", "labels"]]
