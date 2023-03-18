@@ -2,7 +2,25 @@ from typing import List
 
 import torch
 
+import numpy as np
 
+def set_reproducible():
+    # The below is necessary to have reproducible behavior.
+    import random as rn
+    import os
+    os.environ['PYTHONHASHSEED'] = '0'
+    # The below is necessary for starting Numpy generated random numbers
+    # in a well-defined initial state.
+    np.random.seed(17)
+    # The below is necessary for starting core Python generated random numbers
+    # in a well-defined state.
+    rn.seed(12345)
+    # same for pytorch
+    random_seed = 1 # or any of your favorite number 
+    torch.manual_seed(random_seed)
+    torch.cuda.manual_seed(random_seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 class Classifier:

@@ -2,6 +2,7 @@
 import src.preprocess_data as prepData
 
 # basic stuff
+import os
 import numpy as np
 
 # data handling
@@ -31,6 +32,25 @@ from datasets.utils import disable_progress_bar
 disable_progress_bar()
 
 
+def set_reproducible():
+    # The below is necessary to have reproducible behavior.
+    import random as rn
+    import os
+    os.environ['PYTHONHASHSEED'] = '0'
+    # The below is necessary for starting Numpy generated random numbers
+    # in a well-defined initial state.
+    np.random.seed(17)
+    # The below is necessary for starting core Python generated random numbers
+    # in a well-defined state.
+    rn.seed(12345)
+    # same for pytorch
+    random_seed = 1 # or any of your favorite number 
+    torch.manual_seed(random_seed)
+    torch.cuda.manual_seed(random_seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
 class TransformerSentimentClassifier(torch.nn.Module):
 
     def __init__(self, config):
@@ -47,6 +67,7 @@ class TransformerSentimentClassifier(torch.nn.Module):
 
         # initialise classifier
         self.classifier = nn.Sequential()
+        self.classifier.append(nn.Dropout(config["cls_dropout_st"]))
 
         ## get activation function
         if config["cls_activation"] == "ReLU":
@@ -56,8 +77,8 @@ class TransformerSentimentClassifier(torch.nn.Module):
         elif config["cls_activation"] == "Tanh":
             activation = nn.Tanh()
         
-        ## get dropout layer (if no dropout, just set parameter to 0)
-        dropout = nn.Dropout(config["cls_dropout"])
+        ## get hidden dropout layers
+        dropout = nn.Dropout(config["cls_dropout_hidden"])
 
         ## initialise classifier head
         input_size = self.emb_dim
@@ -67,11 +88,11 @@ class TransformerSentimentClassifier(torch.nn.Module):
             if idx < len(config["cls_channels"]) - 1: # append activation + dropout only in hidden layers
                 self.classifier.append(activation)
                 self.classifier.append(dropout)
-            else: # if last layer, apply Sigmoid to make sum of predictions = 1
-                self.classifier.append(nn.Sigmoid())
 
     def forward(self, x):
-        x : torch.Tensor = self.lm(x['input_ids'], x['attention_mask']).last_hidden_state
+        input_ids = x[0].squeeze(0)
+        attention_mask = x[1].squeeze(0)
+        x : torch.Tensor = self.lm(input_ids, attention_mask).last_hidden_state
         global_vects     = x.mean(dim=1) # THIS SHOULD BE OPTIMIZED (how to handle output vectors from language model)
         x                = self.classifier(global_vects)
         return x.squeeze(-1)
@@ -158,7 +179,7 @@ def init_training(config):
 
     # get criterion based on which we will compute the loss
     if config["criterion"] == "BCE":
-        criterion = torch.nn.BCELoss(reduction = "mean")
+        criterion = nn.BCEWithLogitsLoss(pos_weight = torch.tensor([1113/390, 1445/58, 448/1055]).to(device)) # weights are neg_samples_classX/pos_samples_classX
     
     return (max_epochs, trainloader, devloader, model, optimizer, lr_scheduler, criterion, device)
 
@@ -176,12 +197,15 @@ def train_epoch(dataloader, model, optimizer, lr_scheduler, criterion, device):
 
         # move batch to device
         batch = {k: v.to(device) for k, v in batch.items()}
+
+        # get inputs
+        inputs = torch.cat((batch["input_ids"].unsqueeze(0), batch["attention_mask"].unsqueeze(0)), dim = 0)
     
         # zero optimizer gradients
         optimizer.zero_grad()
         
         # forward + backward + optimize
-        outputs = model(batch)
+        outputs = model(inputs)
         loss = criterion(outputs, batch['labels'].float())
         loss.backward()
         optimizer.step()
@@ -205,21 +229,25 @@ def val_epoch(dataloader, model, criterion, device):
     lbls = torch.Tensor([])
     preds = torch.Tensor([])
     
-    for batch in dataloader:
-        # get ground truth labels of this batch
-        lbls = torch.cat((lbls, batch["labels"].argmax(dim = 1)))
+    with torch.no_grad():
+        for batch in dataloader:
+            # get ground truth labels of this batch
+            lbls = torch.cat((lbls, batch["labels"].argmax(dim = 1)))
 
-        # move batch to device
-        batch = {k: v.to(device) for k, v in batch.items()}
-        
-        # forward
-        outputs = model(batch)
-        loss = criterion(outputs, batch['labels'].float())
-        
-        # logging
-        losses.append(loss.item())
-        preds = torch.cat((preds, outputs.argmax(dim = 1).cpu()))
-        
+            # move batch to device
+            batch = {k: v.to(device) for k, v in batch.items()}
+
+            # get inputs
+            inputs = torch.cat((batch["input_ids"].unsqueeze(0), batch["attention_mask"].unsqueeze(0)), dim = 0)
+            
+            # forward
+            outputs = model(inputs)
+            loss = criterion(outputs, batch['labels'].float())
+            
+            # logging
+            losses.append(loss.item())
+            preds = torch.cat((preds, outputs.argmax(dim = 1).cpu()))
+
     # compute stats
     acc = accuracy_score(lbls, preds)
     loss_mean = np.mean(losses)
@@ -229,7 +257,7 @@ def val_epoch(dataloader, model, criterion, device):
 
 def train_evaluate_model(max_epochs, trainloader, devloader, model,
                          optimizer, lr_scheduler, criterion, device,
-                         verbose = True, ray = False, return_obj = True):
+                         verbose = True, ray = False, return_obj = True, save_best_model = False):
     """
     Function that aggregates everything in one place to start model training.
     """
@@ -239,6 +267,7 @@ def train_evaluate_model(max_epochs, trainloader, devloader, model,
     dev_losses = []
     trn_accs = []
     dev_accs = []
+    max_dev_acc = 0
 
     for epoch in range(1, max_epochs + 1):
         
@@ -266,14 +295,55 @@ Trn Acc: {round(trn_acc, 2)}, Dev Acc: {round(dev_acc, 4)}")
             trn_accs.append(trn_acc)
             dev_accs.append(dev_acc)
 
+        if save_best_model:
+            if dev_acc > max_dev_acc:
+                max_dev_acc = dev_acc
+                model_name = model.lm._get_name()
+                path = os.path.abspath("") + "\\models\\" + model_name + "_finetuned.pt"
+                torch.save(model.state_dict(), path)
+
     if return_obj:
         return model, trn_losses, dev_losses, trn_accs, dev_accs
     
+
+def evaluate(dataloader, model, device):
+    
+    model.to(device)
+    model.eval()
+    lbls = torch.Tensor([])
+    preds = torch.Tensor([])
+    
+    with torch.no_grad():
+        for batch in dataloader:
+            # get ground truth labels of this batch
+            lbls = torch.cat((lbls, batch["labels"].argmax(dim = 1)))
+
+            # move batch to device
+            batch = {k: v.to(device) for k, v in batch.items()}
+
+            # get inputs
+            inputs = torch.cat((batch["input_ids"].unsqueeze(0), batch["attention_mask"].unsqueeze(0)), dim = 0)
+
+            # forward
+            outputs = model(inputs)
+            
+            # logging
+            preds = torch.cat((preds, outputs.argmax(dim = 1).cpu()))
+
+    # compute stats
+    acc = accuracy_score(lbls, preds)
+
+    return acc, lbls, outputs.detach().cpu(), preds
+
 
 def ray_trainable(config):
     """
     Function that wraps everything into one function to allow for raytune hyperparameter training.
     """
+
+    # ensure reproducibility
+    set_reproducible()
+
     # initialise objects for training
     (max_epochs, trainloader, devloader,
      model, optimizer, lr_scheduler,
@@ -282,7 +352,7 @@ def ray_trainable(config):
     # perform training (no return!)
     train_evaluate_model(max_epochs, trainloader, devloader, model,
                          optimizer, lr_scheduler, criterion, device,
-                         verbose = False, ray = True, return_obj = False)
+                         verbose = False, ray = True, return_obj = False, save_best_model = False)
     
 
 def trial_str_creator(trial):

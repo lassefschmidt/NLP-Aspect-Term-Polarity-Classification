@@ -3,7 +3,7 @@ import pandas as pd
 def preprocess(df, enrich_inputs = "aspect_target_sentence"):
 
     # encode labels
-    label_dict = {"negative": 0, "neutral": 1, "positive": 2}
+    class_dict = {"negative": 0, "neutral": 1, "positive": 2}
     df = df.assign(labels = pd.get_dummies(df.y).values.tolist()) # labels are of form negative, neutral, positive
 
     # generate and enrich inputs
