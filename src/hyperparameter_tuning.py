@@ -47,8 +47,6 @@ def set_reproducible():
     random_seed = 1 # or any of your favorite number 
     torch.manual_seed(random_seed)
     torch.cuda.manual_seed(random_seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
 
 
 class TransformerSentimentClassifier(torch.nn.Module):
@@ -60,58 +58,56 @@ class TransformerSentimentClassifier(torch.nn.Module):
         self.plm_name     = config["plm_name"]
         self.lm_config    = AutoConfig.from_pretrained(self.plm_name)
         self.lm_tokenizer = AutoTokenizer.from_pretrained(self.plm_name)
+        self.lm = AutoModel.from_pretrained(self.plm_name)
 
-        if self.plm_name == "cardiffnlp/twitter-roberta-base-sentiment-latest":
-            self.lm = AutoModelForSequenceClassification.from_pretrained(self.plm_name)
-        else:
-            self.lm = AutoModel.from_pretrained(self.plm_name)
+        # initialise key params
+        self.depth = config["cls_depth"]
+        self.width = config["cls_width"]
+        
+        # get activation function
+        if config["cls_activation"] == "ReLU":
+            activation = nn.ReLU()
+        elif config["cls_activation"] == "Sigmoid":
+            activation = nn.Sigmoid()
+        elif config["cls_activation"] == "Tanh":
+            activation = nn.Tanh()
 
-        # initialise classifier (only makes sense for AutoModel, NOT for AutoModelForSequenceClassification)
-        if config["cls_channels"] is not None:
-            # get input and output dimensions of classifier
-            self.emb_dim     = self.lm_config.hidden_size
-            self.output_size = 3
+        # initliase classifier
+        self.classifier = nn.Sequential()
+        self.classifier.append(nn.Dropout(config["cls_dropout_st"]))
 
-            # initialise classifier
-            self.classifier = nn.Sequential()
-            self.classifier.append(nn.Dropout(config["cls_dropout_st"]))
+        ## basic settings
+        self.emb_dim = self.lm_config.hidden_size
+        cur_width = self.emb_dim
+        self.output_width = 3
+        
+        ## append layers
+        for i in range(self.depth):
 
-            ## get activation function
-            if config["cls_activation"] == "ReLU":
-                activation = nn.ReLU()
-            elif config["cls_activation"] == "Sigmoid":
-                activation = nn.Sigmoid()
-            elif config["cls_activation"] == "Tanh":
-                activation = nn.Tanh()
-            
-            ## get hidden dropout layers
-            dropout = nn.Dropout(config["cls_dropout_hidden"])
+            # last layer
+            if i == self.depth - 1:
+                self.classifier.append(nn.Linear(cur_width, self.output_width))
+                break
 
-            ## initialise classifier head
-            input_size = self.emb_dim
-            for idx, channel in enumerate(config["cls_channels"]):
-                self.classifier.append(nn.Linear(input_size, channel))
-                input_size = channel # update input size for next layer
-                if idx < len(config["cls_channels"]) - 1: # append activation + dropout only in hidden layers
-                    self.classifier.append(activation)
-                    self.classifier.append(dropout)
+            # for all hidden layers (append activation and dropout only here!)
+            self.classifier.append(nn.Linear(cur_width, self.width))
+            self.classifier.append(activation)
+            self.classifier.append(nn.Dropout(config["cls_dropout_hidden"]))
+            cur_width = self.width
+
 
     def forward(self, ids, mask, token_type_ids):
         if self.plm_name == "bert-base-cased":
             _, output_1 = self.lm(input_ids = ids, attention_mask = mask, token_type_ids = token_type_ids)
             output_2 = self.classifier(output_1)
 
-        if self.plm_name == "roberta-base":
+        if self.plm_name == "roberta-base" or self.plm_name == "roberta-large":
             output_1 = self.lm(input_ids = ids, attention_mask = mask, token_type_ids = token_type_ids)
             hidden_state = output_1[0]
             pooler = hidden_state[:, 0]
             output_2 = self.classifier(pooler)
 
-        if self.plm_name == "cardiffnlp/twitter-roberta-base-sentiment-latest":
-            output_2 = self.lm(input_ids = ids, attention_mask = mask).logits
-        
         return output_2
-
 
 def get_datasets(config):
     # paths to data
