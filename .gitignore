@@ -29,7 +29,6 @@ MANIFEST
 
 # custom folders
 models/
-ray_results/
 *.pt
 
 # PyInstaller

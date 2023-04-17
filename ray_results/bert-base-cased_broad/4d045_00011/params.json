@@ -1,0 +1,21 @@
+{
+  "batch_size": 32,
+  "cls_activation": "ReLU",
+  "cls_channels": [
+    768,
+    768,
+    3
+  ],
+  "cls_dropout_hidden": 0.1,
+  "cls_dropout_st": 0,
+  "criterion": "BCE",
+  "data_path": "D:\\Dokumente\\2_Bildung\\2_MSc\\1_Classes\\Y2T2_NLP\\3_assignment\\NLP-Aspect-Term-Polarity-Classification",
+  "input_enrichment": "aspect_target_sentence",
+  "lr": 5e-05,
+  "lr_s": "linear",
+  "max_epochs": 10,
+  "plm_freeze": false,
+  "plm_name": "bert-base-cased",
+  "warmup": 0,
+  "wd": 0.01
+}

@@ -1,0 +1,18 @@
+{
+  "batch_size": 32,
+  "cls_activation": "ReLU",
+  "cls_depth": 2,
+  "cls_dropout_hidden": 0.05,
+  "cls_dropout_st": 0.05,
+  "cls_width": 384,
+  "criterion": "BCE",
+  "data_path": "D:\\Dokumente\\2_Bildung\\2_MSc\\1_Classes\\Y2T2_NLP\\3_assignment\\NLP-Aspect-Term-Polarity-Classification",
+  "input_enrichment": "question_sentence_target",
+  "lr": 1e-05,
+  "lr_s": "cosine",
+  "max_epochs": 10,
+  "plm_freeze": false,
+  "plm_name": "roberta-base",
+  "warmup": 0,
+  "wd": 0.01
+}
