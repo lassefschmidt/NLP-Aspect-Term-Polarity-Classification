@@ -12,6 +12,7 @@ import pandas as pd
 # modeling
 import torch
 from torch import nn
+from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from transformers import AutoConfig, AutoTokenizer, AutoModel, AutoModelForSequenceClassification, DataCollatorWithPadding, get_scheduler
 
@@ -108,6 +109,57 @@ class TransformerSentimentClassifier(torch.nn.Module):
             output_2 = self.classifier(pooler)
 
         return output_2
+    
+
+class FocalLoss(nn.Module):
+
+    def __init__(self, alpha = 1, gamma = 2, reduction = 'mean', eps = 1e-8):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+        self.eps = eps
+
+    def forward(self, inputs, targets):
+
+        BCE_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction = "none")
+
+        prob = torch.sigmoid(inputs)
+        prob = torch.clamp(prob, min = self.eps, max = 1.0) # avoid vanishing gradients
+
+        pt = torch.where(targets == 1, prob, 1 - prob)
+
+        F_loss = self.alpha * ((1 - pt) ** self.gamma) * BCE_loss
+
+        if self.reduction == 'mean':
+            return torch.mean(F_loss)
+        elif self.reduction == 'sum':
+            return torch.sum(F_loss)
+        else:
+            return F_loss
+        
+
+class TopKLoss(nn.Module):
+
+    def __init__(self, k, reduction='mean', pos_weight = None):
+        super(TopKLoss, self).__init__()
+        self.k = k # 0 < k <= 100 (if 100, this is simply BCE_Loss)
+        self.reduction = reduction
+        self.pos_weight = pos_weight
+
+    def forward(self, inputs, targets):
+
+        BCE_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction = "none", pos_weight = self.pos_weight)
+        num_losses = np.prod(BCE_loss.shape, dtype=np.int64) # with batch size 10, we would have shape (10, 3) and num_losses = 30
+        TopK_loss, _ = torch.topk(BCE_loss.view((-1, )), int(num_losses * self.k / 100))
+        
+        if self.reduction == 'mean':
+            return torch.mean(TopK_loss)
+        elif self.reduction == 'sum':
+            return torch.sum(TopK_loss)
+        else:
+            return TopK_loss
+
 
 def get_datasets(config):
     # paths to data
@@ -188,9 +240,24 @@ def init_training(config):
     lr_scheduler = get_scheduler(name = config["lr_s"], optimizer = optimizer,
                                  num_warmup_steps = num_warmup_steps, num_training_steps = num_training_steps)
 
+    # get loss weights that we will apply
+    num_positives = torch.tensor([390, 58, 1055], dtype = torch.float)
+    num_negatives = torch.tensor([1113, 1445, 448], dtype = torch.float)
+
+    if config["crit_w"] == "invClassFreq": # in our problem roughly (3, 24, 0.5) for (neg, neutral, pos)
+        weights = (num_negatives / num_positives).to(device)
+    elif config["crit_w"] == "invSqrtClassFreq": # roughly (1.69, 5, 0.65) for (neg, neutral, pos) --> smoother than previous option, neutral class not as crazy important
+        weights = (torch.sqrt(num_negatives) / torch.sqrt(num_positives)).to(device)
+    else:
+        weights = None
+    
     # get criterion based on which we will compute the loss
-    if config["criterion"] == "BCE":
-        criterion = nn.BCEWithLogitsLoss(pos_weight = torch.tensor([1113/390, 1445/58, 448/1055]).to(device)) # weights are neg_samples_classX/pos_samples_classX
+    if config["crit"] == "BCE":
+        criterion = nn.BCEWithLogitsLoss(pos_weight = weights)
+    elif config["crit"] == "Focal":
+        criterion = FocalLoss()
+    elif config["crit"] == "TopK":
+        criterion = TopKLoss(k = 50, pos_weight = weights)
     
     return (max_epochs, trainloader, devloader, model, optimizer, lr_scheduler, criterion, device)
 
@@ -289,16 +356,18 @@ def train_evaluate_model(max_epochs, trainloader, devloader, model,
     for epoch in range(1, max_epochs + 1):
         
         ##TRAINING##
+        model.train()
         trn_acc, trn_loss = train_epoch(trainloader, model, optimizer,
                                         lr_scheduler, criterion, device)
         
-        ##TESTING##
+        ##VALIDATION##
+        model.eval()
         dev_acc, dev_loss = val_epoch(devloader, model, criterion, device)
         
         ##REPORT##
         if verbose:
-            print(f"Epoch [{epoch}/{max_epochs}] -> Trn Loss: {round(trn_loss, 2)}, Dev Loss: {round(dev_loss, 4)}, \
-Trn Acc: {round(trn_acc, 2)}, Dev Acc: {round(dev_acc, 4)}")
+            print(f"Epoch [{epoch}/{max_epochs}] -> Trn Loss: {round(trn_loss, 4)}, Dev Loss: {round(dev_loss, 4)}, \
+Trn Acc: {round(trn_acc, 4)}, Dev Acc: {round(dev_acc, 4)}")
         
         if ray:
             cur_lr = optimizer.param_groups[0]["lr"]
