@@ -14,11 +14,13 @@ def preprocess(df, config):
         SEP = " [SEP] "
         END = " [SEP]"
         MARKER = "[unused99]"
+        MARKER_END = "[/unused99]"
     elif plm_name == "roberta-base" or plm_name == "roberta-large":
         START = "<s> "
         SEP = " </s> "
         END = " </s>"
         MARKER = "<tgt>"
+        MARKER_END = "</tgt>"
     else:
         print("please review preprocessing function to include this new model!")
         raise NotImplementedError
@@ -26,7 +28,7 @@ def preprocess(df, config):
     # add marker token to target_term
     # example: "pizzas" --> "MARKER pizzas"
     df = (df
-        .assign(target_term = lambda df_: [MARKER + " " + t for t in df_.target_term])
+        .assign(target_term = lambda df_: [MARKER + " " + t + " " + MARKER_END  for t in df_.target_term])
     )
 
     # insert marker token in review sentence before specific occurence of target term
@@ -83,6 +85,12 @@ def preprocess(df, config):
             .assign(aspect_nl = lambda df_: [aspect_in_nl[cat] for cat in df_.aspect])
             .assign(aspect_nl = lambda df_: [cat_nl.replace("$T$", t) for cat_nl, t in zip(df_.aspect_nl, df_.target_term)])
             .assign(inputs = lambda df_: [START + q + SEP + s + END for q, s in zip(df_.aspect_nl, df_.sentence)])
+        )
+    elif  enrich_inputs == "short_question_sentence_target":
+
+        df = (df
+            .assign(aspect_nl = lambda df_: [cat.replace('#',' ').lower() + t + ' ?' for cat,t in zip(df_.aspect, df_.target_term)])
+            .assign(inputs = lambda df_: [START + q + SEP + s + SEP + t + END for q, s, t in zip(df_.aspect_nl, df_.sentence, df_.target_term)])
         )
     
     return df[["inputs", "labels"]]
