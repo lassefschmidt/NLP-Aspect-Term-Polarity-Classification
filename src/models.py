@@ -1,6 +1,10 @@
 # import own scripts
-import preprocess_data as prepData
-import losses
+try:
+    import src.preprocess_data as prepData
+    import src.losses as losses
+except ModuleNotFoundError:
+    import preprocess_data as prepData
+    import losses
 
 # data handling
 from datasets import Dataset

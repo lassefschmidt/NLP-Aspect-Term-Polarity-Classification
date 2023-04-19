@@ -1,5 +1,8 @@
 # import own scripts
-import models
+try:
+    import src.models as models
+except ModuleNotFoundError:
+    import models
 
 # modeling
 import numpy as np
@@ -25,38 +28,42 @@ class Classifier:
     The Classifier: complete the definition of this class template by providing a constructor (i.e. the
     __init__() function) and the 2 methods train() and predict() below. Please donot change
      """
-    def __init__(self):
-        self.config = {
-            # basic infos
-            "max_epochs": 20,
-            "batch_size": 32,
-            
-            # data preprocessing
-            "input_enrichment": "question_sentence_target",
-            
-            # pre-trained language model (transformer)
-            "plm_name": "roberta-base",
-            "plm_freeze": False,
-            
-            # classifier (linear layers)
-            "cls_depth":          2,
-            "cls_width":          192,
-            "cls_activation":     "ReLU",
-            "cls_dropout_st":     0.2,
-            "cls_dropout_hidden": 0,
-            
-            # optimizer
-            "lr": 1e-5,
-            "wd": 1e-2,
-            
-            # scheduler
-            "lr_s": "linear",
-            "warmup": 2,
-            
-            # loss function
-            "crit": "BCE",
-            "crit_w": "invSqrtClassFreq",
-        }
+    def __init__(self, config = None):
+        if config is not None:
+            self.config = config
+        else:
+            self.config = {
+                # basic infos
+                "verbose": True,
+                "max_epochs": 20,
+                "batch_size": 32,
+                
+                # data preprocessing
+                "input_enrichment": "question_sentence_target",
+                
+                # pre-trained language model (transformer)
+                "plm_name": "roberta-base",
+                "plm_freeze": False,
+                
+                # classifier (linear layers)
+                "cls_depth":          2,
+                "cls_width":          192,
+                "cls_activation":     "ReLU",
+                "cls_dropout_st":     0.2,
+                "cls_dropout_hidden": 0,
+                
+                # optimizer
+                "lr": 1e-5,
+                "wd": 1e-2,
+                
+                # scheduler
+                "lr_s": "linear",
+                "warmup": 2,
+                
+                # loss function
+                "crit": "BCE",
+                "crit_w": "invSqrtClassFreq",
+            }
         
         self.final_model_path = "best_model.pt"
 
@@ -171,8 +178,9 @@ class Classifier:
             dev_acc, dev_loss = val_epoch(devloader, model, criterion, device)
             
             ##REPORT##
-            print(f"Epoch [{epoch}/{max_epochs}] -> Trn Loss: {round(trn_loss, 2)}, Dev Loss: {round(dev_loss, 4)}, \
-                Trn Acc: {round(trn_acc, 2)}, Dev Acc: {round(dev_acc, 4)}")
+            if self.config.get("verbose", False):
+                print(f"Epoch [{epoch}/{max_epochs}] -> Trn Loss: {round(trn_loss, 2)}, Dev Loss: {round(dev_loss, 4)}, \
+                    Trn Acc: {round(trn_acc, 2)}, Dev Acc: {round(dev_acc, 4)}")
             
             ##LOGGING##
             trn_losses.append(trn_loss)

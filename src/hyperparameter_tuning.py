@@ -1,5 +1,7 @@
 # import own scripts
 import src.preprocess_data as prepData
+import src.tester_modified_ray as tester
+from src.classifier import Classifier
 
 # basic stuff
 import os
@@ -443,6 +445,42 @@ def ray_trainable(config):
                          optimizer, lr_scheduler, criterion, device,
                          verbose = False, ray = True, return_obj = False, save_best_model = False)
     
+def ray_trainable_tester(config):
+    """
+    Function that wraps everything into one function to allow for raytune hyperparameter training.
+    This is like the tester.py where we do multiple runs and we only report the best performing epoch of each run and the std
+    """
+
+    # ensure reproducibility
+    tester.set_reproducible()
+
+    # init objects
+    classifier =  Classifier(config)
+
+    # paths to data
+    datadir = config["data_path"] + "\\data\\"
+    trainfile =  datadir + "traindata.csv"
+    devfile   =  datadir + "devdata.csv"
+
+    # get device
+    gpu_id = 0
+    device_name = "cpu" if gpu_id is None else f"cuda:{gpu_id}"
+    device = torch.device(device_name)
+
+    # perform 5 runs
+    for i in range(5):
+
+        # train
+        classifier.train(trainfile, devfile, device)
+
+        # evaluate
+        slabels = classifier.predict(devfile, device)
+        glabels = tester.load_label_output(devfile)
+        dev_acc = tester.eval_list(glabels, slabels)
+
+        # report
+        session.report({"dev_acc": dev_acc})
+
 
 def trial_str_creator(trial):
     """
@@ -468,8 +506,8 @@ def run_ray_experiment(train_func, config, ray_path, num_samples, metric_columns
             resources={"CPU": 16, "GPU": 1}
         ),
         tune_config = tune.TuneConfig(
-            metric = "trn_loss",
-            mode = "min",
+            metric = "dev_acc",
+            mode = "max",
             num_samples = num_samples,
             trial_name_creator = trial_str_creator,
             trial_dirname_creator = trial_str_creator,
