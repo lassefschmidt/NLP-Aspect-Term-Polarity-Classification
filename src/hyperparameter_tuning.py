@@ -453,7 +453,7 @@ def ray_trainable_tester(config):
 
     # ensure reproducibility
     tester.set_reproducible()
-
+    
     # init objects
     classifier =  Classifier(config)
 

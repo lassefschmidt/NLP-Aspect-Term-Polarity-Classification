@@ -1,0 +1,2 @@
+dev_acc,time_this_iter_s,done,timesteps_total,episodes_total,training_iteration,trial_id,experiment_id,date,timestamp,time_total_s,pid,hostname,node_ip,time_since_restore,timesteps_since_restore,iterations_since_restore,warmup_time
+0,0.0009975433349609375,False,,,1,9f803_00000,9bc5b03bfe174eafb26511339a941fa0,2023-04-19_11-29-07,1681896547,0.0009975433349609375,24680,Schenker-Media-Station,127.0.0.1,0.0009975433349609375,0,1,0.002991199493408203

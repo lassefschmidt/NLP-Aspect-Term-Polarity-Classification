@@ -13,6 +13,7 @@ from sklearn.metrics import accuracy_score
 
 # other
 from typing import List
+from copy import deepcopy
 
 # suppress hugginface messages
 from transformers import logging
@@ -34,12 +35,12 @@ class Classifier:
         else:
             self.config = {
                 # basic infos
-                "verbose": True,
+                "verbose": False,
                 "max_epochs": 20,
                 "batch_size": 32,
                 
                 # data preprocessing
-                "input_enrichment": "question_sentence_target",
+                "input_enrichment": "short_question_sentence_target",
                 
                 # pre-trained language model (transformer)
                 "plm_name": "roberta-base",
@@ -49,23 +50,21 @@ class Classifier:
                 "cls_depth":          2,
                 "cls_width":          192,
                 "cls_activation":     "ReLU",
-                "cls_dropout_st":     0.2,
+                "cls_dropout_st":     0, # maybe try out 0.1 sometime
                 "cls_dropout_hidden": 0,
                 
                 # optimizer
-                "lr": 1e-5,
-                "wd": 1e-2,
+                "lr": 5e-6,
+                "wd": 15e-3,
                 
                 # scheduler
                 "lr_s": "linear",
-                "warmup": 2,
+                "warmup": 0,
                 
                 # loss function
                 "crit": "BCE",
                 "crit_w": "invSqrtClassFreq",
             }
-        
-        self.final_model_path = "best_model.pt"
 
 
     ############################################# comp
@@ -191,7 +190,7 @@ class Classifier:
             ##SAVE BEST MODEL##
             if dev_acc > max_dev_acc:
                 max_dev_acc = dev_acc
-                torch.save(model.state_dict(), self.final_model_path)
+                self.best_model_state = deepcopy(model.state_dict())
         
         return trn_losses, dev_losses, trn_accs, dev_accs
 
@@ -205,7 +204,7 @@ class Classifier:
         """
         # Load the final_model
         model = models.TransformerSentimentClassifier(self.config)
-        model.load_state_dict(torch.load(self.final_model_path))
+        model.load_state_dict(self.best_model_state)
         model.to(device)
 
         # put in eval mode
