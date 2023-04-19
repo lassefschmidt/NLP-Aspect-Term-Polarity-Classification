@@ -1,0 +1,5 @@
+call .venv/Scripts/activate
+
+cd src
+
+python tester.py -n 5 -g 0

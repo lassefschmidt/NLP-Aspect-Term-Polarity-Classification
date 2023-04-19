@@ -1,14 +1,23 @@
-from typing import List
+# import own scripts
+import models
 
+# modeling
+import numpy as np
 import torch
 
-import numpy as np
-
-import models 
-
-import pandas as pd
-
+# evaluation
 from sklearn.metrics import accuracy_score
+
+# other
+from typing import List
+
+# suppress hugginface messages
+from transformers import logging
+logging.set_verbosity_error()
+
+# suppress progress bar
+from datasets.utils import disable_progress_bar
+disable_progress_bar()
 
 
 class Classifier:
@@ -18,37 +27,36 @@ class Classifier:
      """
     def __init__(self):
         self.config = {
-          # basic infos
-          "max_epochs": 1,
-          "batch_size": 32,
-          
-          # data preprocessing
-          "input_enrichment": "question_sentence_target",
-          
-          # pre-trained language model (transformer)
-          # "bert-base-cased", "cardiffnlp/twitter-roberta-base-sentiment-latest", "roberta-base"
-          "plm_name": "roberta-base",
-          "plm_freeze": False,
-
-          # classifier (linear layers)
-          "cls_dropout_st":     0,
-          "cls_channels":       [3],
-          "cls_activation":     "ReLU",
-          "cls_dropout_hidden": 0.2,
-          "cls_depth":          2,
-          "cls_width":          384,
-          
-          # optimizer
-          "lr": 5e-5,
-          "wd": 1e-2,
-
-          # scheduler
-          "lr_s": "linear",
-          "warmup": 0,
-          
-          # loss function
-          "criterion": "BCE"
-          }
+            # basic infos
+            "max_epochs": 20,
+            "batch_size": 32,
+            
+            # data preprocessing
+            "input_enrichment": "question_sentence_target",
+            
+            # pre-trained language model (transformer)
+            "plm_name": "roberta-base",
+            "plm_freeze": False,
+            
+            # classifier (linear layers)
+            "cls_depth":          2,
+            "cls_width":          192,
+            "cls_activation":     "ReLU",
+            "cls_dropout_st":     0.2,
+            "cls_dropout_hidden": 0,
+            
+            # optimizer
+            "lr": 1e-5,
+            "wd": 1e-2,
+            
+            # scheduler
+            "lr_s": "linear",
+            "warmup": 2,
+            
+            # loss function
+            "crit": "BCE",
+            "crit_w": "invSqrtClassFreq",
+        }
         
         self.final_model_path = "best_model.pt"
 
@@ -190,19 +198,25 @@ class Classifier:
         # Load the final_model
         model = models.TransformerSentimentClassifier(self.config)
         model.load_state_dict(torch.load(self.final_model_path))
+        model.to(device)
+
+        # put in eval mode
         model.eval()
+
+        # logging
         lbls = torch.Tensor([])
         preds = torch.Tensor([])
         
-        # Process datafile (we have to do this again because we need to be able intake datafile of dev and test)
+        # preprocess datafile (we have to do this again because we need to be able intake datafile of dev and test)
         def tokenize_func(hf_dataset):
           return model.lm_tokenizer(hf_dataset["inputs"], truncation = True)
-        hf_dev = models.get_datasets(self.onfig, data_filename)
+        hf_dev = models.get_dataset(self.config, data_filename)
         hf_dev_tok   = hf_dev.map(tokenize_func,   batched = True)
         hf_dev_tok   = hf_dev_tok.remove_columns(["inputs"])
         data_collator = models.DataCollatorWithPadding(tokenizer = model.lm_tokenizer, padding = True, return_tensors = "pt")
-        devloader   = models.get_dataloader(hf_dev_tok,   self.config["batch_size"], shuffle = True, data_collator = data_collator)
+        devloader   = models.get_dataloader(hf_dev_tok,   self.config["batch_size"], shuffle = False, data_collator = data_collator)
 
+        # predict
         with torch.no_grad():
             for batch in devloader:
                 # get ground truth labels of this batch
@@ -222,15 +236,5 @@ class Classifier:
                 
                 # logging
                 preds = torch.cat((preds, outputs.argmax(dim = 1).cpu()))
-
-        # compute stats
-        acc = accuracy_score(lbls, preds)
-
-        pred_labels = ['negative' if l == 0 else 'neutral' if l == 1 else 'positive' for l in preds]
-
-        return pred_labels
-
-
-
-
-
+        
+        return ['negative' if l == 0 else 'neutral' if l == 1 else 'positive' for l in preds]
