@@ -50,7 +50,7 @@ class Classifier:
                 "cls_depth":          2,
                 "cls_width":          192,
                 "cls_activation":     "ReLU",
-                "cls_dropout_st":     0, # maybe try out 0.1 sometime
+                "cls_dropout_st":     0,
                 "cls_dropout_hidden": 0,
                 
                 # optimizer
